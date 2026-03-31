@@ -4,3 +4,5 @@ Tells more about the scenario, maybe text from vansh variant, then new options a
 
 ## Progress
 - Added an api call logger to monitor calls and costs
+- Updated gemini_logger to handle gemini-2.5-flash-image too, but this model sucks.
+  Cannot retain facial data. Stick with 3.1-flash-image-preview for now.
