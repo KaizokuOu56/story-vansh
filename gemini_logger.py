@@ -33,14 +33,22 @@ PRICING = {
         "output": 1.50 / 1_000_000,
         "image_output": 60.0 / 1_000_000,
     },
+    "gemini-2.5-flash-image": {
+        "input":  0.30 / 1_000_000,
+        "output": 0.40 / 1_000_000,
+        "image_output": 30.0 / 1_000_000,
+        # assuming in response modalities that only image is chosen, so ignore text output ideally for this model (price prob incorrect)
+    }
 }
 
-IMAGE_TOKENS = {
+IMAGE_TOKENS_3_1_FLASH_IMAGE_PREVIEW = {
     "512":   747,
     "1024": 1120,
     "2048": 1680,
     "4096": 2520,
 }
+
+# image tokens for gemini-2.5-flash-image are not published, just directly use the token count from usage metadata for pricing
 
 # ---------------------------------------------------------------------------
 # Internal helpers
@@ -50,7 +58,7 @@ def _load_log() -> dict:
     if LOG_FILE.exists():
         with LOG_FILE.open("r", encoding="utf-8") as f:
             return json.load(f)
-    return {"calls": [], "total_cost_usd": 0.0}
+    return {"calls": [], "total_cost_usd": 0.0, "num_of_calls": 0}
 
 
 def _save_log(log: dict) -> None:
@@ -73,8 +81,6 @@ def _compute_cost(model: str, input_tokens: int, output_tokens: int,
 
 def log_call(response,
              model: str,
-             call_type: str,
-             image_resolution: str = "512",
              prompt_preview: str = "",
              explicit: bool = False) -> float:
     """
@@ -83,8 +89,6 @@ def log_call(response,
     Args:
         response:         The raw response object returned by the Gemini SDK.
         model:            Model name, e.g. "gemini-3.1-flash-lite-preview".
-        call_type:        "text" or "image".
-        image_resolution: Only used when call_type="image". One of: "512", "1024", "2048", "4096".
         prompt_preview:   Optional short description or prompt snippet for the log.
         explicit:         If True, print the log entry to console.
 
@@ -96,18 +100,20 @@ def log_call(response,
 
     usage = response.usage_metadata
     input_tokens  = usage.prompt_token_count
-    output_tokens = usage.candidates_token_count
-
-    # Image token cost
+    output_tokens = 0
     image_tokens = 0
-    if call_type == "image":
-        if image_resolution not in IMAGE_TOKENS:
-            raise ValueError(f"image_resolution must be one of {list(IMAGE_TOKENS.keys())}")
-        num_images = sum(
-            1 for part in response.parts
-            if part.inline_data and part.inline_data.mime_type.startswith("image/")
-        )
-        image_tokens = IMAGE_TOKENS[image_resolution] * num_images
+
+    if(model == "gemini-3.1-flash-lite-preview"):
+        output_tokens = usage.candidates_token_count
+        call_type = "text"  
+    elif(model == "gemini-3.1-flash-image-preview"):
+        image_tokens = usage.candidates_tokens_details[0].token_count
+        output_tokens = usage.candidates_token_count - image_tokens  # Subtract image tokens from total candidate tokens to get text tokens
+        call_type = "image"
+    elif(model == "gemini-2.5-flash-image"):
+        image_tokens = usage.candidates_tokens_details[0].token_count  # Assuming only one candidate and it's an image
+        output_tokens = usage.candidates_token_count - image_tokens  # Subtract image tokens from total candidate tokens to get text tokens
+        call_type = "image"
 
     cost = round(_compute_cost(model, input_tokens, output_tokens, image_tokens), 5)
 
@@ -119,13 +125,14 @@ def log_call(response,
         "prompt_preview":   prompt_preview[:120] if prompt_preview else "",
         "input_tokens":     input_tokens,
         "output_tokens":    output_tokens,
-        **({"image_resolution": image_resolution, "image_tokens": image_tokens} if call_type == "image" else {}),
+        **({"image_tokens": image_tokens} if call_type == "image" else {}),
         "cost_usd":         cost,
     }
 
     log = _load_log()
     log["calls"].append(entry)
     log["total_cost_usd"] = round(log["total_cost_usd"] + cost, 10)
+    log["num_of_calls"] = log["num_of_calls"] + 1
     _save_log(log)
 
     if explicit:

@@ -1,0 +1,16 @@
+# ===========================================
+# Ignore the virtual environment directory
+# ===========================================
+
+storyvansh_env/
+
+# ===========================================
+# Ignore specific files and directories
+# ===========================================
+
+__pycache__/
+gemini_api_calls.json
+test.py
+*.jpg
+*.png
+*.jpeg
